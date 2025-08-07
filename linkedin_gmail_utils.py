@@ -1,7 +1,6 @@
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 from linkedin_gmail_prompt import linkedin_gmail_prompt
-from langgraph.prebuilt import create_react_agent
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_google_genai import ChatGoogleGenerativeAI
 from typing import Optional, Dict, Any, Callable
@@ -61,7 +60,32 @@ async def setup_agent_with_tools(
             progress_callback("Creating AI agent... ✅")
         # Create agent with initialized model
         mcp_orch_model = initialize_model(google_api_key)
-        agent = create_react_agent(mcp_orch_model, tools)
+        
+        # Create a simple agent without langgraph
+        class SimpleAgent:
+            def _init_(self, model, tools):
+                self.model = model
+                self.tools = tools
+            
+            async def ainvoke(self, inputs, config=None):
+                # Simple implementation without langgraph
+                messages = inputs.get("messages", [])
+                if messages:
+                    last_message = messages[-1].content
+                    
+                    # Create detailed prompt
+                    detailed_prompt = f"""
+{last_message}
+
+Please execute the requested actions using the available tools.
+"""
+                    
+                    # Use the model to generate response
+                    response = await self.model.ainvoke([HumanMessage(content=detailed_prompt)])
+                    return {"messages": [response]}
+                return {"messages": []}
+        
+        agent = SimpleAgent(mcp_orch_model, tools)
         
         if progress_callback:
             progress_callback("Setup complete! Starting to process your request... ✅")
@@ -136,4 +160,4 @@ Email Data:
     try:
         return loop.run_until_complete(_run())
     finally:
-        loop.close() 
+        loop.close()
