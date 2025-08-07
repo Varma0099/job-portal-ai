@@ -1,5 +1,4 @@
-langchain
-langgraph
-langchain-mcp-adapters
-langchain-google-genai
 streamlit
+langchain==0.0.27
+langchain-google-genai
+langchain-mcp-adapters

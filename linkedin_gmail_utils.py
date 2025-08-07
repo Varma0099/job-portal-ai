@@ -1,11 +1,12 @@
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
-from prompt import user_goal_prompt
+from linkedin_gmail_prompt import linkedin_gmail_prompt
 from langgraph.prebuilt import create_react_agent
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_google_genai import ChatGoogleGenerativeAI
-from typing import Optional, Tuple, Any, Callable
+from typing import Optional, Dict, Any, Callable
 import asyncio
+import json
 
 cfg = RunnableConfig(recursion_limit=100)
 
@@ -17,43 +18,34 @@ def initialize_model(google_api_key: str) -> ChatGoogleGenerativeAI:
 
 async def setup_agent_with_tools(
     google_api_key: str,
-    youtube_pipedream_url: str,
-    drive_pipedream_url: Optional[str] = None,
-    notion_pipedream_url: Optional[str] = None,
+    linkedin_pipedream_url: str,
+    gmail_pipedream_url: str,
     progress_callback: Optional[Callable[[str], None]] = None
 ) -> Any:
     """
-    Set up the agent with YouTube (mandatory) and optional Drive or Notion tools.
+    Set up the agent with LinkedIn and Gmail tools.
     """
     try:
         if progress_callback:
             progress_callback("Setting up agent with tools... ✅")
         
-        # Initialize tools configuration with mandatory YouTube
+        # Initialize tools configuration
         tools_config = {
-            "youtube": {
-                "url": youtube_pipedream_url,
+            "linkedin": {
+                "url": linkedin_pipedream_url,
+                "transport": "streamable_http"
+            },
+            "gmail": {
+                "url": gmail_pipedream_url,
                 "transport": "streamable_http"
             }
         }
 
-        # Add Drive if URL provided
-        if drive_pipedream_url:
-            tools_config["drive"] = {
-                "url": drive_pipedream_url,
-                "transport": "streamable_http"
-            }
-            if progress_callback:
-                progress_callback("Added Google Drive integration... ✅")
+        if progress_callback:
+            progress_callback("Added LinkedIn integration... ✅")
 
-        # Add Notion if URL provided
-        if notion_pipedream_url:
-            tools_config["notion"] = {
-                "url": notion_pipedream_url,
-                "transport": "streamable_http"
-            }
-            if progress_callback:
-                progress_callback("Added Notion integration... ✅")
+        if progress_callback:
+            progress_callback("Added Gmail integration... ✅")
 
         if progress_callback:
             progress_callback("Initializing MCP client... ✅")
@@ -72,7 +64,7 @@ async def setup_agent_with_tools(
         agent = create_react_agent(mcp_orch_model, tools)
         
         if progress_callback:
-            progress_callback("Setup complete! Starting to generate learning path... ✅")
+            progress_callback("Setup complete! Starting to process your request... ✅")
         
         return agent
     except Exception as e:
@@ -81,10 +73,9 @@ async def setup_agent_with_tools(
 
 def run_agent_sync(
     google_api_key: str,
-    youtube_pipedream_url: str,
-    drive_pipedream_url: Optional[str] = None,
-    notion_pipedream_url: Optional[str] = None,
-    user_goal: str = "",
+    linkedin_pipedream_url: str,
+    gmail_pipedream_url: str,
+    content_data: Dict[str, Any],
     progress_callback: Optional[Callable[[str], None]] = None
 ) -> dict:
     """
@@ -94,26 +85,45 @@ def run_agent_sync(
         try:
             agent = await setup_agent_with_tools(
                 google_api_key=google_api_key,
-                youtube_pipedream_url=youtube_pipedream_url,
-                drive_pipedream_url=drive_pipedream_url,
-                notion_pipedream_url=notion_pipedream_url,
+                linkedin_pipedream_url=linkedin_pipedream_url,
+                gmail_pipedream_url=gmail_pipedream_url,
                 progress_callback=progress_callback
             )
             
-            # Combine user goal with prompt template
-            learning_path_prompt = "User Goal: " + user_goal + "\n" + user_goal_prompt
+            # Prepare the prompt with content data
+            action_type = content_data.get("action_type", "")
+            linkedin_data = content_data.get("linkedin", {})
+            email_data = content_data.get("email", {})
+            
+            # Create detailed prompt
+            detailed_prompt = f"""
+Action Type: {action_type}
+
+LinkedIn Data:
+- Content: {linkedin_data.get('content', '')}
+- Hashtags: {linkedin_data.get('hashtags', '')}
+- Visibility: {linkedin_data.get('visibility', 'Public')}
+
+Email Data:
+- Recipient: {email_data.get('recipient', '')}
+- Subject: {email_data.get('subject', '')}
+- Content: {email_data.get('content', '')}
+- Priority: {email_data.get('priority', 'Normal')}
+
+{linkedin_gmail_prompt}
+"""
             
             if progress_callback:
-                progress_callback("Generating your learning path...")
+                progress_callback("Processing your request...")
             
             # Run the agent
             result = await agent.ainvoke(
-                {"messages": [HumanMessage(content=learning_path_prompt)]},
+                {"messages": [HumanMessage(content=detailed_prompt)]},
                 config=cfg
             )
             
             if progress_callback:
-                progress_callback("Learning path generation complete!")
+                progress_callback("Action completed successfully!")
             
             return result
         except Exception as e:
@@ -126,4 +136,4 @@ def run_agent_sync(
     try:
         return loop.run_until_complete(_run())
     finally:
-        loop.close()
+        loop.close() 
